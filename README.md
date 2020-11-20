@@ -26,14 +26,15 @@ If you wish to run ResNet for images classification, you will also need Tensorfl
 
 ## How to get the ATM dataset
 The ATM dataset being a property of equensWorldline, you must first send an email to "intellectual-property-team-worldline@worldline.com" and "antoine.guillaume@equensworldline.com" to ask for authorization. 
-The compressed archive weights around 50Mo for a total weight of 575Mo.
+The compressed archive weights around 50Mo for a total weight of 575Mo. The dictionary of event codes will be supplied at the same time.
 
 ## Parameters & Configuration
 
-Configuration parameters are located at the beginning of the script, you MUST change the base_path to match the current directory of this project. Other parameters can be left as is to reproduce the results of the paper.
+Configuration parameters are located at the beginning of CV_script, you MUST change the base_path to match the current directory of this project. Other parameters can be left as is to reproduce the results of the paper.
 To change or check the algorithms parameters, they all are redefined in custom wrapper classes to avoid errors, if a parameter is not specified in the constructor, it is left as default.
+The representations methods are defined inside utils.representations and the classifications methods inside utils.classifications.
 
-ResNet is left commented in the code (~ line 880), so you can run the other algorithms without a Tensorflow installation or a GPU without any impact.
+ResNet is left commented in the code, so you can run the other algorithms without a Tensorflow installation or a GPU without any impact.
 
 ## Usage
 

@@ -31,7 +31,7 @@ from sklearn.preprocessing import MinMaxScaler
 # In[3]:
 
 #Base path, all necessary folders are supposed to be contained in this one.
-base_path = r"C:/Utilisateurs/A694772/Documents/ECMLPKDD_datacopy/"
+base_path = r"!! REPLACE BY YOUR PATH !!"
 
 #Path to the life cycles CSV files.
 dataset_path = base_path+r"datasets/"
@@ -135,7 +135,8 @@ life_cycles = np.asarray([process_cycle(file_name, dataset_path,
                              extended_infected_interval_hours) for file_name in file_list])
 
 print('\nData Loaded')
-# # Define data representation functions
+
+# # Define data encoding functions
 
 # In[5]:
 
@@ -154,7 +155,6 @@ def get_R1_dict(codes):
 
 def get_R2_dict(codes):
     return {x : int(x[2:]) for x in codes}
-
 
 def get_R3_dict(codes, spacing=200):
     OK_codes = ["GA01000","GA02000","GA03000","GA04000","GA05000","GA06000","GA07000","GA10000","GA10011",
@@ -217,7 +217,7 @@ def apply_code_dict(df, code_dic, code_column='cod_evt'):
 # In[11]:
 
 pipeline_dict = {}
-#FLATTENED IMAGE CLASSIFIERS
+#FLATTENED IMAGE
 
 pipeline_dict.update({"PAA Gramian Flat RF":make_pipeline(Gramian_transform(flatten=True),
                                                           Random_Forest())})
@@ -301,7 +301,6 @@ pipeline_dict.update({"PAA SFA KNN":make_pipeline(PiecewiseApproximation_transfo
 #SFA use Fourrier transform (DFT) and they binning with MCB, the result of this operation is not in the time domain anymore.
 
 
-
 #TIME SERIE CLASSIFIERS + PAA + MATRIX PROFILE
 
 pipeline_dict.update({"PAA MP TSRF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
@@ -322,8 +321,7 @@ pipeline_dict.update({"PAA MP RISE":make_pipeline(PiecewiseApproximation_transfo
 
 
 
-
-#Rocket transform
+#PAA + ROCKET
 pipeline_dict.update({"PAA ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
                                                     ROCKET_transform(flatten=True),
                                                     Random_Forest())})
@@ -346,6 +344,8 @@ pipeline_dict.update({"PAA ROCKET Ridge":make_pipeline(PiecewiseApproximation_tr
                                                      SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
                                                      Ridge_classif())})
 
+
+#PAA + MATRIX PROFILE + ROCKET
 pipeline_dict.update({"PAA MP ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
                                                        MatrixProfile_transform(), 
                                                        ROCKET_transform(flatten=True),
@@ -374,6 +374,7 @@ pipeline_dict.update({"PAA MP ROCKET Ridge":make_pipeline(PiecewiseApproximation
                                                         SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
                                                         Ridge_classif())})
 
+#PAA + SAX + ROCKET
 pipeline_dict.update({"PAA SAX ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
                                                        SymbolicAggregate_transform(), 
                                                        ROCKET_transform(flatten=True),
@@ -400,6 +401,9 @@ pipeline_dict.update({"PAA SAX ROCKET KNN":make_pipeline(PiecewiseApproximation_
                                                         SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
                                                         KNN_classif())})
 
+#ROCKET on SFA is not efficient, rocket can already extract frequency based features due to the nature of convolutional kernels.
+
+#PAA + MP + STACKED FLAT IMAGES
 pipeline_dict.update({"PAA MP Gramian + Recurrence RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
     MatrixProfile_transform(),
     FeatureUnion([
@@ -436,7 +440,7 @@ pipeline_dict.update({"PAA Gramian + Recurrence RF":make_pipeline(PiecewiseAppro
         ]),
     Random_Forest())})
 
-
+#PAA + STACKED FLAT IMAGES
 pipeline_dict.update({"PAA Gramian + Recurrence SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
     FeatureUnion([
         ("gramian",Gramian_transform(flatten=True)),
@@ -454,8 +458,6 @@ pipeline_dict.update({"PAA Gramian + Recurrence KNN":make_pipeline(PiecewiseAppr
     MinMaxScaler(),
     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
     KNN_classif())})
-
-#ROCKET on SFA is not efficient, rocket can already extract frequency based features due to the nature of convolutional kernels.
          
 """
 #This section is left commented so you have no trouble running the script without Tensorflow/GPU
@@ -472,11 +474,11 @@ pipeline_dict.update({"PAA Recurrence ResNet50V2":make_pipeline(Recurrence_trans
 """
 
          
-print('Pipelines initialised')
+print('Pipelines initialized')
 
 # In[12]:
 
-# Critical Failure index (CFI). As True Negatives implies that no maintenance is schedule (so no business impact),
+# Critical Failure Index (CFI). As True Negatives implies that no maintenance is scheduled (so no business impact),
 # this measure indicate how many maintenance operation we "missed" (False Negatives) plus how many we did
 # while it was not necessary to do so (False Positives). Then those two variables are summed and 
 # divided by their sum plus the number of successful prediction (True Positives). 
@@ -503,10 +505,6 @@ def report(pipeline, r ,b_accs, cfis, f1s, decimals=3):
 
 df_res = pd.DataFrame(columns=['name','representation','balanced accuracy mean', 'CFI mean', 'F1 score mean', 'Fit time mean','Score time mean'
                                'balanced accuracy std', 'CFI std', 'F1 score std','Fit time std','Score time std'])
-
-
-# In[14]:
-    
 
 print('Cross Validation')
 order = {0:'R1',1:'R2',2:'R3',3:'R4'}

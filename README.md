@@ -34,8 +34,6 @@ Configuration parameters are located at the beginning of CV_script, you MUST cha
 To change or check the algorithms parameters, they all are redefined in custom wrapper classes to avoid errors, if a parameter is not specified in the constructor, it is left as default.
 The representations methods are defined inside utils.representations and the classifications methods inside utils.classifications.
 
-ResNet is left commented in the code, so you can run the other algorithms without a Tensorflow installation or a GPU without any impact.
-
 ## Usage
 
 Extract the files of the dataset archive located in ~/datasets in the dataset folder
@@ -58,6 +56,25 @@ The runtime of this script is extremely long, one iteration take about 4 hours, 
 ```bash
 python TSCHIEF_results_to_csv.py
 ```
+## Note on using sktime-dl for InceptionTime and ResNet
+Both InceptionTime and ResNet are left commented in the code, so you can run the other algorithms without a Tensorflow installation or a GPU without any impact.
+Depending on your installation, you might run into errors while feeding tensorflow models in a cross validation pipeline from scikit-learn. Some of those issues can be fixed by making the wrapper for those models defined in utils.classifications inheriting the KerasClassifier wrapper from tensorflow.
+
+To make those two algorithms part of the experiments, you have to uncomment both their declaration in utils.classifications and the associated pipeline in CV_script.
+
+About InceptionTime : sktime-dl is the package dedicated for deep learning built by the sktime authors, still being in active development at time of writing, we add to make some modifications to the source code to be able to run InceptionTime.
+From the latest version available on github we applied the following modification :
+
+* Fix import error from sktime utils : In sktime_dl/utils/_data.py, replace :
+```
+from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested (_data.py line 6)
+```
+by
+```
+from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested (_data.py line 6)
+```
+
+* We also modified InceptionTime to use binary_crossentropy (change loss name and use sigmod layer with 1 neuron as an output) and weighted accuracy for early stopping. This is not mandatory but is more suited to our problem.
 
 ## Contributing
 

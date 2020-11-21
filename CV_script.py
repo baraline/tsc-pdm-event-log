@@ -31,8 +31,8 @@ from sklearn.preprocessing import MinMaxScaler
 # In[3]:
 
 #Base path, all necessary folders are supposed to be contained in this one.
-base_path = r"!! REPLACE BY YOUR PATH !!"
-
+#base_path = r"!! REPLACE BY YOUR PATH !!"
+base_path = r"C:/Utilisateurs/A694772/Documents/ECMLPKDD_datacopy/"
 #Path to the life cycles CSV files.
 dataset_path = base_path+r"datasets/"
 
@@ -40,7 +40,8 @@ dataset_path = base_path+r"datasets/"
 result_path = base_path+r"results/"
 
 #If not None, CSV files containing data used by the TS-CHIEF java program will be outputed
-TSCHIEF_path = dataset_path+r"TSCHIEF/"
+#TSCHIEF_path = dataset_path+r"TSCHIEF/"
+TSCHIEF_path = None
 
 #If True, perform cross validation of all defined pipelines
 do_cross_validation = True
@@ -58,14 +59,14 @@ predictive_padding_hours = 48
 extended_infected_interval_hours = 24
 
 #Size of the PAA transform output
-size=1000
+size=500
 
 #Number of cross validation splits
-n_splits=10
+n_splits=2
 
 # Number of process to launch in parallel for cross validation of each pipeline.
 # Set to None if you don't have the setup to allow such speedups. 
-n_cv_jobs=-1
+n_cv_jobs=None
 
 if dataset_path is not None and not exists(dataset_path):
     mkdir(dataset_path)

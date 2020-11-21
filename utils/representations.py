@@ -9,6 +9,7 @@ from pyts.approximation import PiecewiseAggregateApproximation, SymbolicAggregat
 from pyts.transformation import ROCKET
 from matplotlib import pyplot as plt
 
+from sklearn.base import BaseEstimator, TransformerMixin
 # # Define classes for representation methods
 
 # Here we define custom classes when necessary for the representation methods we will use inside pipelines during cross validation. 
@@ -18,25 +19,21 @@ from matplotlib import pyplot as plt
 # Pyts : https://pyts.readthedocs.io/
 # 
 # MatrixProfile : https://matrixprofile.docs.matrixprofile.org/
-# 
-# sktime : https://sktime.org/index.html
-# 
-# sklearn : https://scikit-learn.org/stable/index.html
 
 # In[2]:
 
 #Gramian natively use PAA, reccurence don't, 
 #that's why you'll see calls to PAA inside the Recurrence class but not in the Gramian
 
-class Gramian_transform:
+class Gramian_transform(BaseEstimator, TransformerMixin):
     def __init__(self, img_size=128, flatten=False, method='s'):
         self.img_size = img_size
-        self.flatten=flatten
+        self.flatten = flatten
+        self.method = method
         self.cmap = plt.get_cmap('jet')
-        self.transformer = GramianAngularField(image_size=img_size,
-                                               method=method,
-                                               flatten=flatten)
-    def transform(self,X):
+        self.transformer = None
+        
+    def transform(self, X, y=None):
         if type(X[0]) == pd.core.series.Series:
             X = np.asarray([x.values for x in X])
         
@@ -48,24 +45,22 @@ class Gramian_transform:
             X = self.cmap(X)[:,:,:,:,0:3].reshape(X.shape[0],self.img_size, self.img_size,3)
         return X
     
-    def set_params(self, **params):
-        return self.transformer.set_params(**params)
+    def fit(self, X, y=None):
+        self.transformer = GramianAngularField(image_size=self.img_size,
+                                               method=self.method,
+                                               flatten=self.flatten)
+        return self
     
-    def fit_transform(self,X,y):
-        return self.transform(X)
-
-class Recurrence_transform:
+class Recurrence_transform(BaseEstimator, TransformerMixin):
     def __init__(self, output_size=128, dimension=1, time_delay=6, flatten=False):
         self.output_size = output_size
         self.flatten=flatten
+        self.dimension = dimension
+        self.time_delay = time_delay
         self.cmap = plt.get_cmap('jet')
-        self.approximator = PiecewiseAggregateApproximation(output_size=output_size,
-                                                                  window_size=None, 
-                                                                  overlapping=False)
-        self.transformer = RecurrencePlot(dimension=dimension,
-                                          time_delay=time_delay,
-                                          flatten=flatten)
-    def transform(self,X):
+        self.transformer = None
+        
+    def transform(self, X, y=None):
         if type(X[0]) == pd.core.series.Series:
             X = np.asarray([x.values for x in X])
         
@@ -78,27 +73,23 @@ class Recurrence_transform:
             X = self.cmap(X)[:,:,:,:,0:3].reshape(X.shape[0],self.output_size, self.output_size,3)
         return X
 
-    def set_params(self, **parameters):
-        for parameter, value in parameters.items():
-            if parameter == 'output_size':
-                self.approximator.set_params(**{parameter: value})
-                setattr(self, parameter, value)
-            elif parameter in ['dimension','time_delay']:
-                self.transformer.set_params(**{parameter: value})
-            else:
-                setattr(self, parameter, value)
+    def fit(self, X, y=None):
+        self.approximator = PiecewiseAggregateApproximation(output_size=self.output_size,
+                                                                  window_size=None, 
+                                                                  overlapping=False)
+        self.transformer = RecurrencePlot(dimension=self.dimension,
+                                          time_delay=self.time_delay,
+                                          flatten=self.flatten)
         return self
     
-    def fit_transform(self,X,y):
-        return self.transform(X)
-
-class PiecewiseApproximation_transform:
+class PiecewiseApproximation_transform(BaseEstimator, TransformerMixin):
     def __init__(self, output_size=1000, overlapping=False, window_size=None):
         self.output_size = output_size
-        self.transformer = PiecewiseAggregateApproximation(output_size=output_size, 
-                                                           window_size=window_size,
-                                                           overlapping=overlapping)
-    def transform(self,X):
+        self.overlapping = overlapping
+        self.window_size = window_size
+        self.transformer = None
+        
+    def transform(self, X, y=None):
         if type(X[0]) == pd.core.series.Series:
             X = np.asarray([x.values for x in X])
             
@@ -106,77 +97,79 @@ class PiecewiseApproximation_transform:
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     
-    def set_params(self, **params):
-        return self.transformer.set_params(**params)
-    
-    def fit_transform(self,X,y):
-        return self.transform(X)
+    def fit(self, X, y=None):
+        self.transformer = PiecewiseAggregateApproximation(output_size=self.output_size, 
+                                                           window_size=self.window_size,
+                                                           overlapping=self.overlapping)
+        return self
         
-class SymbolicAggregate_transform:
+class SymbolicAggregate_transform(BaseEstimator, TransformerMixin):
     def __init__(self, n_bins=7, strategy='uniform', alphabet='ordinal'):
-        self.transformer = SymbolicAggregateApproximation(n_bins=n_bins, strategy=strategy,
-                                                          alphabet=alphabet)
+        self.n_bins = n_bins
+        self.strategy = strategy
+        self.alphabet = alphabet
+        self.transformer = None
         
-    def set_params(self, **params):
-        return self.transformer.set_params(**params)
-    
-    def transform(self, X):
+    def transform(self, X, y=None):
         X = np.asarray([self.transformer.transform(x.reshape(1,-1)).astype(float) if np.max(x) - np.min(x) != 0 else np.zeros((1,x.shape[0])) for x in X])
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     
-    def fit_transform(self,X,y):
-        return self.transform(X)
-    
-class SymbolicFourrier_transform:
+    def fit(self, X, y=None):
+        self.transformer = SymbolicAggregateApproximation(n_bins=self.n_bins,
+                                                          strategy=self.strategy,
+                                                          alphabet=self.alphabet)
+        return self
+        
+class SymbolicFourrier_transform(BaseEstimator, TransformerMixin):
     def __init__(self, n_coefs=20, n_bins=7, strategy='uniform', drop_sum=False,
                  anova=True, norm_mean=True, norm_std=False, alphabet='ordinal'):
-        self.transformer = SymbolicFourierApproximation(n_coefs=n_coefs, n_bins=n_bins,
-                                                        strategy=strategy, alphabet=alphabet,
-                                                        drop_sum=drop_sum, anova=anova,
-                                                        norm_mean=norm_mean, norm_std=norm_std)
-    def transform(self,X):
+        self.n_coefs = n_coefs
+        self.n_bins = n_bins
+        self.strategy = strategy
+        self.alphabet = alphabet
+        self.drop_sum = drop_sum
+        self.anova = anova
+        self.norm_mean = norm_mean
+        self.norm_std = norm_std
+        self.transformer = None
+        
+    def transform(self, X, y=None):
         X = np.asarray([self.transformer.transform(x.reshape(1,-1)).astype(float) if np.max(x) - np.min(x) != 0 else np.zeros((1,x.shape[0])) for x in X])         
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     
-    def set_params(self, **params):
-        return self.transformer.set_params(**params)
+    def fit(self, X, y=None):
+        self.transformer = SymbolicFourierApproximation(n_coefs=self.n_coefs, n_bins=self.n_bins,
+                                                        strategy=self.strategy, alphabet=self.alphabet,
+                                                        drop_sum=self.drop_sum, anova=self.anova,
+                                                        norm_mean=self.norm_mean, norm_std=self.norm_std)
+        return self
     
-    def fit_transform(self,X,y):
-        X = X.reshape(X.shape[0],X.shape[1])
-        self.transformer.fit(X,y)
-        return self.transform(X)
     
-    
-class MatrixProfile_transform:
+class MatrixProfile_transform(BaseEstimator, TransformerMixin):
     def __init__(self, window_size=0.075):
         self._window_size=window_size
         
-    def transform(self, X):
+        
+    def transform(self, X, y=None):
         if type(X[0]) == pd.core.series.Series:
             X = np.asarray([x.values for x in X])
         X = np.asarray([mp.compute(x.reshape(-1),windows=x.shape[0]*self._window_size)['mp'].reshape(1,-1) for x in X])        
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     
-    def fit_transform(self,X,y):
-        return self.transform(X)
-    
-    def set_params(self, **parameters):
-        for parameter, value in parameters.items():
-            setattr(self, parameter, value)
+    def fit(self, X, y=None):
         return self
     
-class ROCKET_transform:
+class ROCKET_transform(BaseEstimator, TransformerMixin):
     def __init__(self, n_kernels=15000, kernel_sizes=(5,7,9), flatten=False):
         self.flatten = flatten
-        self.transformer = ROCKET(n_kernels=n_kernels, kernel_sizes=kernel_sizes)
-        
-    def set_params(self, **params):
-        return self.transformer.set_params(**params)
-    
-    def transform(self,X):
+        self.n_kernels = n_kernels
+        self.kernel_sizes = kernel_sizes
+        self.transformer = None
+
+    def transform(self, X, y=None):
         X = X.reshape(X.shape[0],X.shape[1])
         X = self.transformer.transform(X)
         if self.flatten:
@@ -185,8 +178,8 @@ class ROCKET_transform:
             X = X.reshape(X.shape[0], X.shape[1], 1)
         return X
     
-    def fit_transform(self,X,y):
+    def fit(self, X, y=None):
+        self.transformer = ROCKET(n_kernels=self.n_kernels, kernel_sizes=self.kernel_sizes)
         X = X.reshape(X.shape[0],X.shape[1])
         self.transformer.fit(X)
-        return self.transform(X)
-
+        return self

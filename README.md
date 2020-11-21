@@ -22,7 +22,7 @@ The experiment were conducted with python 3.8, the following packages are requir
 * sktime
 * pandas
 
-If you wish to run ResNet for images classification, you will also need Tensorflow 2.x.
+If you wish to run ResNet for images classification, you will also need Tensorflow 2.x, and sktime-dl for InceptionTime.
 
 ## How to get the ATM dataset
 The ATM dataset being a property of equensWorldline, you must first send an email to "intellectual-property-team-worldline@worldline.com" and "antoine.guillaume@equensworldline.com" to ask for authorization. 
@@ -67,11 +67,11 @@ From the latest version available on github we applied the following modificatio
 
 * Fix import error from sktime utils : In sktime_dl/utils/_data.py, replace :
 ```
-from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested (_data.py line 6)
+from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested
 ```
 by
 ```
-from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested (_data.py line 6)
+from sktime.utils.data_container import tabularize, from_3d_numpy_to_nested
 ```
 
 * We also modified InceptionTime to use binary_crossentropy (change loss name and use sigmod layer with 1 neuron as an output) and weighted accuracy for early stopping. This is not mandatory but is more suited to our problem.

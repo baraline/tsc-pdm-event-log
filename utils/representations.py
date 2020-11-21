@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 # In[1]:
 import numpy as np
 import pandas as pd
@@ -49,6 +50,7 @@ class Gramian_transform(BaseEstimator, TransformerMixin):
         self.transformer = GramianAngularField(image_size=self.img_size,
                                                method=self.method,
                                                flatten=self.flatten)
+        self.transformer.fit(X)
         return self
     
 class Recurrence_transform(BaseEstimator, TransformerMixin):
@@ -77,9 +79,11 @@ class Recurrence_transform(BaseEstimator, TransformerMixin):
         self.approximator = PiecewiseAggregateApproximation(output_size=self.output_size,
                                                                   window_size=None, 
                                                                   overlapping=False)
+        self.approximator.fit(X)
         self.transformer = RecurrencePlot(dimension=self.dimension,
                                           time_delay=self.time_delay,
                                           flatten=self.flatten)
+        self.transformer.fit(X)
         return self
     
 class PiecewiseApproximation_transform(BaseEstimator, TransformerMixin):
@@ -101,6 +105,7 @@ class PiecewiseApproximation_transform(BaseEstimator, TransformerMixin):
         self.transformer = PiecewiseAggregateApproximation(output_size=self.output_size, 
                                                            window_size=self.window_size,
                                                            overlapping=self.overlapping)
+        self.transformer.fit(X)
         return self
         
 class SymbolicAggregate_transform(BaseEstimator, TransformerMixin):
@@ -119,6 +124,7 @@ class SymbolicAggregate_transform(BaseEstimator, TransformerMixin):
         self.transformer = SymbolicAggregateApproximation(n_bins=self.n_bins,
                                                           strategy=self.strategy,
                                                           alphabet=self.alphabet)
+        self.transformer.fit(X)
         return self
         
 class SymbolicFourrier_transform(BaseEstimator, TransformerMixin):
@@ -139,23 +145,24 @@ class SymbolicFourrier_transform(BaseEstimator, TransformerMixin):
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     
-    def fit(self, X, y=None):
+    def fit(self, X, y):
         self.transformer = SymbolicFourierApproximation(n_coefs=self.n_coefs, n_bins=self.n_bins,
                                                         strategy=self.strategy, alphabet=self.alphabet,
                                                         drop_sum=self.drop_sum, anova=self.anova,
                                                         norm_mean=self.norm_mean, norm_std=self.norm_std)
+        X = X.reshape(X.shape[0],X.shape[1])
+        self.transformer.fit(X,y)
         return self
     
     
-class MatrixProfile_transform(BaseEstimator, TransformerMixin):
+class MatrixProfile_transform():
     def __init__(self, window_size=0.075):
-        self._window_size=window_size
-        
+        self.window_size = window_size
         
     def transform(self, X, y=None):
         if type(X[0]) == pd.core.series.Series:
             X = np.asarray([x.values for x in X])
-        X = np.asarray([mp.compute(x.reshape(-1),windows=x.shape[0]*self._window_size)['mp'].reshape(1,-1) for x in X])        
+        X = np.asarray([mp.compute(x.reshape(-1),windows=x.shape[0]*self.window_size)['mp'].reshape(1,-1) for x in X])        
         X = X.reshape(X.shape[0], X.shape[2], X.shape[1])
         return X
     

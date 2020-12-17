@@ -12,7 +12,7 @@ from datetime import timedelta
 
 
 #You should be able to ignore import * warnings safely, otherwise import
-# each class name of both files. 
+# each class name of both files.
 from utils.representations import *
 from utils.classifications import *
 
@@ -21,51 +21,55 @@ from sklearn.pipeline import FeatureUnion
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_validate, StratifiedKFold
-from sklearn.metrics import f1_score, balanced_accuracy_score, make_scorer   
+from sklearn.metrics import f1_score, balanced_accuracy_score, make_scorer
 from sklearn.preprocessing import MinMaxScaler
 
 
 # # Params
-# 
+#
 
 # In[3]:
 
 #Base path, all necessary folders are supposed to be contained in this one.
-base_path = r"!! REPLACE BY YOUR PATH !!"
+base_path = r"/home/prof/guillaume/"
 
 #Path to the life cycles CSV files.
 dataset_path = base_path+r"datasets/"
 
-#Path where to export the results of cross validation  
+#Path where to export the results of cross validation
 result_path = base_path+r"results/"
 
 #If not None, CSV files containing data used by the TS-CHIEF java program will be outputed
-TSCHIEF_path = dataset_path+r"TSCHIEF/"
+#dataset_path+r"TSCHIEF/"
+TSCHIEF_path = None
 
 #If True, perform cross validation of all defined pipelines
 do_cross_validation = True
 
-#If not None, will output results of cross validation as a latex file (csv results are still exported)
-produce_latex = base_path+'results.tex'
+#Number of days to consider at the end of the life cycles. Life cycles shorter than n_days+1 will be dropped (+1 for temporal alignment).
+n_days = 21
 
-#Separator used when procuding csv outputs
-csv_separator = ';'
+#Resample frequency. T = minutes
+resample_freq = '20T'
 
 #Size of the predicitve padding
 predictive_padding_hours = 48
 
-#Extend the infected interval to cover restart process, setting it to 0 will introduce bias.
+#Extend the infected interval to cover possible restart process.
 extended_infected_interval_hours = 24
 
-#Size of the PAA transform output
-size=1000
+#If not None, will output results of cross validation as a latex file (csv results are still exported)
+produce_latex = base_path+'results'+str(n_days)+'J_'+resample_freq+'.tex'
+
+#Separator used when procuding csv outputs
+csv_separator = ';'
 
 #Number of cross validation splits
 n_splits=10
 
 # Number of process to launch in parallel for cross validation of each pipeline.
-# Set to None if you don't have the setup to allow such speedups. 
-n_cv_jobs=None
+# Set to None if you don't have the setup to allow such speedups.
+n_cv_jobs=-1
 
 if dataset_path is not None and not exists(dataset_path):
     mkdir(dataset_path)
@@ -73,11 +77,11 @@ if result_path is not None and not exists(result_path):
     mkdir(result_path)
 if TSCHIEF_path is not None and not exists(TSCHIEF_path):
     mkdir(TSCHIEF_path)
-    
+
 # # Import data
 
 # In this experiment, we consider life cycle data coming from ATMs. Only life cycle of at least that seven days are considered.
-# 
+#
 # CSV files are formatted as follow : `Cycle_{}_{}_{}.csv` with in that order : ATM id, life cycle id, state in place of brackets
 
 # In[4]:
@@ -91,13 +95,13 @@ def process_cycle(file_name, path, predictive_interval, infected_interval):
     ----------
     file_name : str
         The name of the life cycle csv file to process
-    
+
     path : str
         The full path to the dataset repository
-        
+
     predictive_interval : int
         Predictive interval to apply in hours
-                
+
     infected_interval : int
         Infected interval to apply in hours
 
@@ -112,15 +116,15 @@ def process_cycle(file_name, path, predictive_interval, infected_interval):
     #Read File
     data = pd.read_csv(path+file_name)
     data['date'] = pd.to_datetime(data['date'])
-    
+
     #Apply Predictive interval
     date = pd.Timestamp((data.iloc[-1]['date'] - timedelta(hours=predictive_interval)))
     data.drop(data[data['date'] >= date].index,axis=0,inplace=True)
+    data.reset_index(drop=True,inplace=True)
     #Apply infected interval
     if data.shape[0] > 0:
         date = pd.Timestamp((data.iloc[0]['date'] + timedelta(hours=infected_interval)))
         data.drop(data[data['date'] <= date].index,axis=0,inplace=True)
-        #Reset index
         data.reset_index(drop=True,inplace=True)
         if data.shape[0] > 0:
             return (data, y)
@@ -134,6 +138,26 @@ life_cycles = np.asarray([process_cycle(file_name, dataset_path,
                              predictive_padding_hours,
                              extended_infected_interval_hours) for file_name in file_list])
 
+
+
+def last_X_days(data, y, X, min_data=0.33):
+    if (data.iloc[-1]['date'] - data.iloc[0]['date']) >= timedelta(days=X+1):
+        lim_date = pd.Timestamp(data.iloc[-1]['date'].date())
+        #Remove not complete day
+        data = data[data['date'] < lim_date]
+
+        #Remove
+        date = pd.Timestamp((lim_date - timedelta(days=X)))
+        data = data.drop(data[data['date'] < date].index,axis=0)
+        if data.shape[0] > ((X*24*60)/int(resample_freq[0:2]))*min_data:
+            return data,y
+        else:
+            return None
+    else:
+        return None
+
+
+life_cycles = np.asarray([last_X_days(x[0],x[1],n_days) for x in life_cycles if x is not None])
 print('\nData Loaded')
 
 # # Define data encoding functions
@@ -142,9 +166,9 @@ print('\nData Loaded')
 
 
 codes = []
-for x in [data[0]['cod_evt'].unique() for data in life_cycles if data is not None]:
-    codes.extend(x) 
-codes = np.unique(codes) #Unique event codes present in the data, in increasing order 
+for x in [x[0]['cod_evt'].unique() for x in life_cycles if x is not None]:
+    codes.extend(x)
+codes = np.unique(codes) #Unique event codes present in the data, in increasing order
 
 # In[6]:
 
@@ -162,7 +186,7 @@ def get_R3_dict(codes, spacing=200):
            "GA12500","GA13000","GA13500","GA14000","GA14500","GA15000","GA15100","GA15200",
            "GA17000","GA17002","GA20000","GA21000"]
     OK_codes = [x for x in codes if x in OK_codes]
-    
+
     WAR_codes = ["GA02002","GA02003","GA02005","GA02006","GA02007","GA02008","GA03002","GA03003","GA03004",
                 "GA03005","GA03006","GA04002","GA04003","GA04004","GA04005","GA04006","GA04006","GA04007",
                 "GA05002","GA05003","GA06002","GA07002","GA07003","GA08001","GA08002","GA08003","GA10013",
@@ -172,19 +196,19 @@ def get_R3_dict(codes, spacing=200):
                  "GA19003","GA19004","GA19005","GA20002","GA20003","GA20004","GA20005","GA21001","GA21002",
                  "GA21003"]
     WAR_codes = [x for x in codes if x in WAR_codes]
-    
+
     KO_codes = ["GA01001","GA02001","GA03001","GA04001","GA05001","GA06001","GA07001","GA10001","GA10012",
                "GA10016","GA10021","GA10025","GA10032","GA10501","GA11001","GA12001",
                "GA13001","GA14001","GA15001","GA15102","GA15202",
                "GA17001","GA17003","GA20001","GA21004"]
     KO_codes = [x for x in codes if x in KO_codes]
-        
+
     R_codes = ["GA40000","GA41000","GA42000"]
     R_codes = [x for x in codes if x in R_codes]
 
     I_codes = ["GA30000"]
     I_codes = [x for x in codes if x in I_codes]
-    
+
     if set(OK_codes + WAR_codes + KO_codes + R_codes + I_codes) != set(codes):
         warnings.warn("get_R3_dict : Following codes did not fit in the OK/KO/WAR paradigm or were not related to hardware events and were discarded:\n{}".format(set(codes)-set(OK_codes + WAR_codes + KO_codes  + R_codes + I_codes)))
 
@@ -195,8 +219,9 @@ def get_R3_dict(codes, spacing=200):
             dict_codes.update({code:k+i})
         k+=spacing
     return dict_codes
-    
+
 def get_R4_dict(codes):
+    codes = np.append(codes, ['-1'])
     vals = np.arange(codes.shape[0])
     np.random.shuffle(vals)
     return {code : vals[i] for i,code in enumerate(codes)}
@@ -210,278 +235,319 @@ def apply_code_dict(df, code_dic, code_column='cod_evt'):
     return df
 
 
+# In[11]:
+
 # # Define pipelines
 
 # We now define the pipelines that we will use for crossvalidation
-
-# In[11]:
+max_features=100
 
 pipeline_dict = {}
 #FLATTENED IMAGE
 
-pipeline_dict.update({"PAA Gramian Flat RF":make_pipeline(Gramian_transform(flatten=True),
+pipeline_dict.update({"Gramian Flat RF":make_pipeline(Gramian_transform(flatten=True),
                                                           Random_Forest())})
 
-pipeline_dict.update({"PAA Recurrence Flat RF":make_pipeline(Recurrence_transform(flatten=True),
+pipeline_dict.update({"Recurrence Flat RF":make_pipeline(Recurrence_transform(flatten=True),
                                                              Random_Forest())})
 
-pipeline_dict.update({"PAA Gramian Flat SVM":make_pipeline(Gramian_transform(flatten=True),
+pipeline_dict.update({"Gramian Flat SVM":make_pipeline(Gramian_transform(flatten=True),
                                                            MinMaxScaler(),
-                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                            SVM_classif())})
 
-pipeline_dict.update({"PAA Recurrence Flat SVM":make_pipeline(Recurrence_transform(flatten=True),
+pipeline_dict.update({"Recurrence Flat SVM":make_pipeline(Recurrence_transform(flatten=True),
                                                               MinMaxScaler(),
-                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                               SVM_classif())})
-                                                              
-pipeline_dict.update({"PAA Gramian Flat KNN":make_pipeline(Gramian_transform(flatten=True),
+
+pipeline_dict.update({"Gramian Flat KNN":make_pipeline(Gramian_transform(flatten=True),
                                                            MinMaxScaler(),
-                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                            KNN_classif())})
 
-pipeline_dict.update({"PAA Recurrence Flat KNN":make_pipeline(Recurrence_transform(flatten=True),
+pipeline_dict.update({"Recurrence Flat KNN":make_pipeline(Recurrence_transform(flatten=True),
                                                               MinMaxScaler(),
-                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                               KNN_classif())})
 
-pipeline_dict.update({"PAA Gramian Flat Ridge":make_pipeline(Gramian_transform(flatten=True),
+pipeline_dict.update({"Gramian Flat Ridge":make_pipeline(Gramian_transform(flatten=True),
                                                              MinMaxScaler(),
-                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                           SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                            Ridge_classif())})
 
-pipeline_dict.update({"PAA Recurrence Flat Ridge":make_pipeline(Recurrence_transform(flatten=True),
+pipeline_dict.update({"Recurrence Flat Ridge":make_pipeline(Recurrence_transform(flatten=True),
                                                                 MinMaxScaler(),
-                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                              SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                               Ridge_classif())})
 
+
 #TIME SERIE CLASSIFIERS + PAA
-pipeline_dict.update({"PAA TSRF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                               TimeSeries_Forest())})
+pipeline_dict.update({"TSRF":make_pipeline(TimeSeries_Forest())})
 
-pipeline_dict.update({"PAA BOSSVS":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                 BOSSVS_classif())})
 
-pipeline_dict.update({"PAA KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                              KNN_TS_classif())})
+pipeline_dict.update({"BOSSVS":make_pipeline(BOSSVS_classif())})
 
-pipeline_dict.update({"PAA RISE":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                               RISE())})
 
-#TIME SERIE CLASSIFIERS + PAA + SAX
+pipeline_dict.update({"KNN":make_pipeline(KNN_TS_classif())})
 
-pipeline_dict.update({"PAA SAX TSRF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   SymbolicAggregate_transform(),
+pipeline_dict.update({"RISE":make_pipeline(RISE())})
+
+#TIME SERIE CLASSIFIERS + SAX
+
+pipeline_dict.update({"SAX TSRF":make_pipeline(SymbolicAggregate_transform(),
                                                    TimeSeries_Forest())})
 
-pipeline_dict.update({"PAA SAX BOSSVS":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   SymbolicAggregate_transform(),
+pipeline_dict.update({"SAX BOSSVS":make_pipeline(SymbolicAggregate_transform(),
                                                    BOSSVS_classif())})
 
-pipeline_dict.update({"PAA SAX KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                  SymbolicAggregate_transform(),
+pipeline_dict.update({"SAX KNN":make_pipeline(SymbolicAggregate_transform(),
                                                   KNN_TS_classif())})
 
-pipeline_dict.update({"PAA SAX RISE":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   SymbolicAggregate_transform(),
+pipeline_dict.update({"SAX RISE":make_pipeline(SymbolicAggregate_transform(),
                                                    RISE())})
 
-#TIME SERIE CLASSIFIERS + PAA + SFA
-pipeline_dict.update({"PAA SFA TSRF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   SymbolicFourrier_transform(),
+#TIME SERIE CLASSIFIERS + SFA
+pipeline_dict.update({"SFA TSRF":make_pipeline(SymbolicFourrier_transform(),
                                                    TimeSeries_Forest())})
 
 #BOSSVS natively perform SFA on input so no point in testing it here
 
-pipeline_dict.update({"PAA SFA KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                  SymbolicFourrier_transform(),
+pipeline_dict.update({"SFA KNN":make_pipeline(SymbolicFourrier_transform(),
                                                   KNN_TS_classif())})
 
 #RISE apply techniques such as power spectrum and autocorrelation that are supposed to be applied in the time domain.
 #SFA use Fourrier transform (DFT) and they binning with MCB, the result of this operation is not in the time domain anymore.
 
 
-#TIME SERIE CLASSIFIERS + PAA + MATRIX PROFILE
+#TIME SERIE CLASSIFIERS + MATRIX PROFILE
 
-pipeline_dict.update({"PAA MP TSRF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   MatrixProfile_transform(),
+pipeline_dict.update({"MP TSRF":make_pipeline(MatrixProfile_transform(),
                                                    TimeSeries_Forest())})
 
-pipeline_dict.update({"PAA MP BOSSVS":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                   MatrixProfile_transform(),
+pipeline_dict.update({"MP BOSSVS":make_pipeline(MatrixProfile_transform(),
                                                    BOSSVS_classif())})
 
-pipeline_dict.update({"PAA MP KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                  MatrixProfile_transform(),
+pipeline_dict.update({"MP KNN":make_pipeline(MatrixProfile_transform(),
                                                   KNN_TS_classif())})
 
-pipeline_dict.update({"PAA MP RISE":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                  MatrixProfile_transform(),
+pipeline_dict.update({"MP RISE":make_pipeline(MatrixProfile_transform(),
                                                   RISE())})
 
 
 
-#PAA + ROCKET
-pipeline_dict.update({"PAA ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                    ROCKET_transform(flatten=True),
+# ROCKET
+
+pipeline_dict.update({"ROCKET RF":make_pipeline(ROCKET_transform(flatten=True),
+                                                    MinMaxScaler(),
+                                                    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                     Random_Forest())})
 
-pipeline_dict.update({"PAA ROCKET SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                     ROCKET_transform(flatten=True),
+pipeline_dict.update({"ROCKET SVM":make_pipeline(ROCKET_transform(flatten=True),
                                                      MinMaxScaler(),
-                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                      SVM_classif())})
 
-pipeline_dict.update({"PAA ROCKET KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                     ROCKET_transform(flatten=True),
+pipeline_dict.update({"ROCKET KNN":make_pipeline(ROCKET_transform(flatten=True),
                                                      MinMaxScaler(),
-                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                      KNN_classif())})
 
-pipeline_dict.update({"PAA ROCKET Ridge":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                     ROCKET_transform(flatten=True),
+pipeline_dict.update({"ROCKET Ridge":make_pipeline(ROCKET_transform(flatten=True),
                                                      MinMaxScaler(),
-                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                     SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                      Ridge_classif())})
 
 
-#PAA + MATRIX PROFILE + ROCKET
-pipeline_dict.update({"PAA MP ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                       MatrixProfile_transform(), 
-                                                       ROCKET_transform(flatten=True),
-                                                       Random_Forest())})
-
-
-
-pipeline_dict.update({"PAA MP ROCKET SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                        MatrixProfile_transform(),
-                                                        ROCKET_transform(flatten=True),
-                                                        MinMaxScaler(),
-                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-                                                        SVM_classif())})
-
-pipeline_dict.update({"PAA MP ROCKET KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                        MatrixProfile_transform(),
-                                                        ROCKET_transform(flatten=True),
-                                                        MinMaxScaler(),
-                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-                                                        KNN_classif())})
-
-pipeline_dict.update({"PAA MP ROCKET Ridge":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                        MatrixProfile_transform(),
-                                                        ROCKET_transform(flatten=True),
-                                                        MinMaxScaler(),
-                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-                                                        Ridge_classif())})
-
-#PAA + SAX + ROCKET
-pipeline_dict.update({"PAA SAX ROCKET RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                       SymbolicAggregate_transform(), 
-                                                       ROCKET_transform(flatten=True),
-                                                       Random_Forest())})
-
-pipeline_dict.update({"PAA SAX ROCKET Ridge":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                       SymbolicAggregate_transform(), 
+# MATRIX PROFILE + ROCKET
+pipeline_dict.update({"MP ROCKET RF":make_pipeline(MatrixProfile_transform(),
                                                        ROCKET_transform(flatten=True),
                                                        MinMaxScaler(),
-                                                       SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-                                                       Ridge_classif())})
+                                                       SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
+                                                       Random_Forest())})
 
-pipeline_dict.update({"PAA SAX ROCKET SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                        SymbolicAggregate_transform(),
+
+pipeline_dict.update({"MP ROCKET SVM":make_pipeline(MatrixProfile_transform(),
                                                         ROCKET_transform(flatten=True),
                                                         MinMaxScaler(),
-                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
                                                         SVM_classif())})
 
-pipeline_dict.update({"PAA SAX ROCKET KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-                                                        SymbolicAggregate_transform(),
+pipeline_dict.update({"MP ROCKET KNN":make_pipeline(MatrixProfile_transform(),
                                                         ROCKET_transform(flatten=True),
                                                         MinMaxScaler(),
-                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                    max_features=max_features, threshold=0.000001),
+                                                        KNN_classif())})
+
+pipeline_dict.update({"MP ROCKET Ridge":make_pipeline(MatrixProfile_transform(),
+                                                        ROCKET_transform(flatten=True),
+                                                        MinMaxScaler(),
+                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                        max_features=max_features, threshold=0.000001),
+                                                        Ridge_classif())})
+
+#SAX + ROCKET
+pipeline_dict.update({"SAX ROCKET RF":make_pipeline(SymbolicAggregate_transform(),
+                                                       ROCKET_transform(flatten=True),
+                                                       Random_Forest())})
+
+pipeline_dict.update({"SAX ROCKET Ridge":make_pipeline(SymbolicAggregate_transform(),
+                                                       ROCKET_transform(flatten=True),
+                                                       MinMaxScaler(),
+                                                       SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                       max_features=max_features, threshold=0.000001),
+                                                       Ridge_classif())})
+
+pipeline_dict.update({"SAX ROCKET SVM":make_pipeline(SymbolicAggregate_transform(),
+                                                        ROCKET_transform(flatten=True),
+                                                        MinMaxScaler(),
+                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                        max_features=max_features, threshold=0.000001),
+                                                        SVM_classif())})
+
+pipeline_dict.update({"SAX ROCKET KNN":make_pipeline(SymbolicAggregate_transform(),
+                                                        ROCKET_transform(flatten=True),
+                                                        MinMaxScaler(),
+                                                        SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                                                                        max_features=max_features, threshold=0.000001),
                                                         KNN_classif())})
 
 #ROCKET on SFA is not efficient, rocket can already extract frequency based features due to the nature of convolutional kernels.
 
-#PAA + MP + STACKED FLAT IMAGES
-pipeline_dict.update({"PAA MP Gramian + Recurrence RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
+#MP + STACKED FLAT IMAGES
+pipeline_dict.update({"MP Gramian + Recurrence RF":make_pipeline(
     MatrixProfile_transform(),
     FeatureUnion([
         ("gramian",Gramian_transform(flatten=True)),
         ("recurrence",Recurrence_transform(flatten=True))
         ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
     Random_Forest())})
 
 
-pipeline_dict.update({"PAA MP Gramian + Recurrence SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
+pipeline_dict.update({"MP Gramian + Recurrence SVM":make_pipeline(
     MatrixProfile_transform(),
     FeatureUnion([
         ("gramian",Gramian_transform(flatten=True)),
         ("recurrence",Recurrence_transform(flatten=True))
         ]),
     MinMaxScaler(),
-    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
     SVM_classif())})
 
-pipeline_dict.update({"PAA MP Gramian + Recurrence KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
+pipeline_dict.update({"MP Gramian + Recurrence KNN":make_pipeline(
     MatrixProfile_transform(),
     FeatureUnion([
         ("gramian",Gramian_transform(flatten=True)),
         ("recurrence",Recurrence_transform(flatten=True))
         ]),
     MinMaxScaler(),
-    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-    KNN_classif())})                                                        
-
-pipeline_dict.update({"PAA Gramian + Recurrence RF":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-    FeatureUnion([
-        ("gramian",Gramian_transform(flatten=True)),
-        ("recurrence",Recurrence_transform(flatten=True))
-        ]),
-    Random_Forest())})
-
-#PAA + STACKED FLAT IMAGES
-pipeline_dict.update({"PAA Gramian + Recurrence SVM":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-    FeatureUnion([
-        ("gramian",Gramian_transform(flatten=True)),
-        ("recurrence",Recurrence_transform(flatten=True))
-        ]),
-    MinMaxScaler(),
-    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
-    SVM_classif())})
-
-pipeline_dict.update({"PAA Gramian + Recurrence KNN":make_pipeline(PiecewiseApproximation_transform(output_size=size),
-    FeatureUnion([
-        ("gramian",Gramian_transform(flatten=True)),
-        ("recurrence",Recurrence_transform(flatten=True))
-        ]),
-    MinMaxScaler(),
-    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"), threshold=0.000001),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
     KNN_classif())})
-         
-"""
+
+pipeline_dict.update({"MP Gramian + Recurrence Ridge":make_pipeline(
+    MatrixProfile_transform(),
+    FeatureUnion([
+        ("gramian",Gramian_transform(flatten=True)),
+        ("recurrence",Recurrence_transform(flatten=True))
+        ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
+    Ridge_classif())})
+
+pipeline_dict.update({"Gramian + Recurrence RF":make_pipeline(
+    FeatureUnion([
+        ("gramian",Gramian_transform(flatten=True)),
+        ("recurrence",Recurrence_transform(flatten=True))
+        ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
+    Random_Forest())})
+
+pipeline_dict.update({"Gramian + Recurrence SVM":make_pipeline(
+    FeatureUnion([
+        ("gramian",Gramian_transform(flatten=True)),
+        ("recurrence",Recurrence_transform(flatten=True))
+        ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
+    SVM_classif())})
+
+pipeline_dict.update({"Gramian + Recurrence KNN":make_pipeline(
+    FeatureUnion([
+        ("gramian",Gramian_transform(flatten=True)),
+        ("recurrence",Recurrence_transform(flatten=True))
+        ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
+    KNN_classif())})
+
+
+pipeline_dict.update({"Gramian + Recurrence Ridge":make_pipeline(
+    FeatureUnion([
+        ("gramian",Gramian_transform(flatten=True)),
+        ("recurrence",Recurrence_transform(flatten=True))
+        ]),
+    MinMaxScaler(),
+    SelectFromModel(ExtraTreesClassifier(n_estimators=300, class_weight="balanced_subsample"),
+                    max_features=max_features, threshold=0.000001),
+    Ridge_classif())})
+
+
 #This section is left commented so you have no trouble running the script without Tensorflow/GPU
 #If you have error during cross validation, you can try to make the class ResNetV2
 # inherit the tensorflow.keras KerasClassifier wrapper, it can fix some issues.
-        
 
-pipeline_dict.update({"PAA Gramian ResNet50V2":make_pipeline(Gramian_transform(flatten=True),
+"""
+pipeline_dict.update({"Gramian ResNet50V2":make_pipeline(Gramian_transform(flatten=True),
                                                              ResNetV2())})
 
 
-pipeline_dict.update({"PAA Recurrence ResNet50V2":make_pipeline(Recurrence_transform(flatten=True),
+pipeline_dict.update({"Recurrence ResNet50V2":make_pipeline(Recurrence_transform(flatten=True),
                                                                 ResNetV2())})
+
+
+pipeline_dict.update({"InceptionTime":make_pipeline(InceptionTime())})
+
+
+pipeline_dict.update({"MP InceptionTime":make_pipeline(MatrixProfile_transform(),
+                                                       InceptionTime())})
+
+
+pipeline_dict.update({"SAX InceptionTime":make_pipeline(SymbolicAggregate_transform(),
+                                                        InceptionTime())})
 """
 
-         
+
 print('Pipelines initialized')
 
 # In[12]:
 
 # Critical Failure Index (CFI). As True Negatives implies that no maintenance is scheduled (so no business impact),
 # this measure indicate how many maintenance operation we "missed" (False Negatives) plus how many we did
-# while it was not necessary to do so (False Positives). Then those two variables are summed and 
-# divided by their sum plus the number of successful prediction (True Positives). 
+# while it was not necessary to do so (False Positives). Then those two variables are summed and
+# divided by their sum plus the number of successful prediction (True Positives).
 # In short, the closer to 0, the more the system is "business" efficient.
 def CFI(y_test, y_pred):
     if type(y_test) == list:
@@ -509,39 +575,49 @@ df_res = pd.DataFrame(columns=['name','representation','balanced accuracy mean',
 print('Cross Validation')
 order = {0:'R1',1:'R2',2:'R3',3:'R4'}
 
-print("A total of {} runs will be launched".format(len(pipeline_dict)*n_splits*len(order)))
 
-for i_r, dic_func in enumerate([get_R1_dict, get_R2_dict, get_R3_dict, get_R4_dict]):
-    X = np.asarray([apply_code_dict(x.copy(deep=True),dic_func(codes))['cod_evt'].values for x in life_cycles[:,0] if x is not None],dtype=object)
+print("A total of {} runs will be launched".format(len(pipeline_dict)*n_splits*len(order)))
+#, get_R2_dict, get_R3_dict, get_R4_dict
+for i_r, dic_func in enumerate([get_R1_dict]):
+
+    code_dict = dic_func(codes)
+    if order[i_r] == 'R1':
+        fill_value = len(list(code_dict.values()))
+    elif order[i_r] == 'R2':
+        fill_value = np.max(list(code_dict.values())) + 1000
+    elif order[i_r] == 'R3':
+        fill_value = 1000
+    elif order[i_r] == 'R4':
+        fill_value = code_dict['-1']
+
+    X = [apply_code_dict(x[0].copy(deep=True), code_dict).resample(resample_freq,on='date',convention='end',origin='start_day').mean().fillna(fill_value) for x in life_cycles if x is not None]
     y = np.asarray([x[1] for x in life_cycles if x is not None]).astype(int)
-    
-    idx = np.where([x.shape[0]>=size for x in X])[0]
-    X = X[idx]
-    y = y[idx]
+
+
+    X = np.asarray([x.reindex(pd.date_range(start=x.index[-1].date()-timedelta(days=n_days),
+                                            end=x.index[-1].date(), freq=resample_freq)).fillna(fill_value).values for x in X])
+    print(X.shape)
+    print(np.bincount(y))
+
     if TSCHIEF_path is not None:
         skf = StratifiedKFold(n_splits=n_splits)
-        
-        paa = PiecewiseApproximation_transform(size)
-        X_paa = paa.transform(X)
-        y_paa = y
-        
-        df = pd.DataFrame(data = {i: x.reshape(-1) for i,x in enumerate(X_paa)}).transpose()
-        df[size]=y_paa
+        df = pd.DataFrame(data = {i: x.reshape(-1) for i,x in enumerate(X)}).transpose()
+        df[X.shape[1]]=y
         df = df.astype(np.float32)
         i_split=0
         for train_idx, test_idx in skf.split(X,y):
-            df.loc[train_idx].to_csv(TSCHIEF_path+'data_Train_{}_{}_{}.csv'.format(size, i_split, order[i_r]),index=False,header=False)
-            df.loc[test_idx].to_csv(TSCHIEF_path+'data_Test_{}_{}_{}.csv'.format(size, i_split, order[i_r]),index=False,header=False)
+            df.loc[train_idx].to_csv(TSCHIEF_path+'data_Train_{}_{}_{}.csv'.format(X.shape[1], i_split, order[i_r]),index=False,header=False)
+            df.loc[test_idx].to_csv(TSCHIEF_path+'data_Test_{}_{}_{}.csv'.format(X.shape[1], i_split, order[i_r]),index=False,header=False)
             i_split+=1
 
 
     if do_cross_validation:
-        for pipeline in pipeline_dict:   
+        for pipeline in pipeline_dict:
             try:
                 cv = cross_validate(pipeline_dict[pipeline],X, y, cv=n_splits, n_jobs=n_cv_jobs,
                                      scoring={'b_a':make_scorer(balanced_accuracy_score),
                                               'cfi':make_scorer(CFI),
-                                              'f1':make_scorer(f1_score)})   
+                                              'f1':make_scorer(f1_score)})
 
             except Exception as e:
                 print(e)
@@ -574,17 +650,16 @@ for i_r, dic_func in enumerate([get_R1_dict, get_R2_dict, get_R3_dict, get_R4_di
                                                          'Score time std':[np.std(cv['score_time'])]})
                                                          ])
 
-# In[15]:
 
-    df_res.to_csv(result_path+'cv_results.csv',sep=csv_separator, index=False)
-    if produce_latex is not None:
-        df_dict = {'name':df_res['name'].unique()}
-        for col in ['balanced accuracy','CFI','F1 score','Fit time','Score time']:
-            for r in ['R1', 'R2', 'R3','R4']:
-                df_dict.update({col+' '+r:(df_res[df_res['representation']==r][col + ' mean'].astype(str).str[0:5] + '(+/- '+df_res[df_res['representation']==r][col+' std'].astype(str).str[0:5]+')').reset_index(drop=True)})
-    df_latex = pd.DataFrame(df_dict)
-    df_latex.to_csv(result_path+'cv_results_latex.csv',sep=csv_separator, index=False)
-    latex_str = df_latex.sort_values(by=['CFI R3'],ascending=True).to_latex(index=False)
-    with open(produce_latex, 'w') as f:
-        f.write(latex_str)
+        df_res.to_csv(result_path+'cv_results'+str(n_days)+'J_'+resample_freq+'.csv',sep=csv_separator, index=False)
+        if produce_latex is not None:
+            df_dict = {'name':df_res['name'].unique()}
+            for col in ['balanced accuracy','CFI','F1 score','Fit time','Score time']:
+                for r in ['R1', 'R2', 'R3','R4']:
+                    df_dict.update({col+' '+r:(df_res[df_res['representation']==r][col + ' mean'].astype(str).str[0:5] + '(+/- '+df_res[df_res['representation']==r][col+' std'].astype(str).str[0:5]+')').reset_index(drop=True)})
+        df_latex = pd.DataFrame(df_dict)
+        df_latex.to_csv(result_path+'cv_results'+str(n_days)+'J_'+resample_freq+'_latex.csv',sep=csv_separator, index=False)
+        latex_str = df_latex.sort_values(by=['CFI R3'],ascending=True).to_latex(index=False)
+        with open(produce_latex, 'w') as f:
+            f.write(latex_str)
 

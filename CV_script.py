@@ -25,10 +25,10 @@ from sklearn.metrics import f1_score, balanced_accuracy_score, make_scorer
 from sklearn.preprocessing import MinMaxScaler
 
 
-# # Params
-#
-
 # In[3]:
+
+# # Parameters
+#    
 
 #Base path, all necessary folders are supposed to be contained in this one.
 base_path = r"/home/prof/guillaume/"
@@ -40,8 +40,7 @@ dataset_path = base_path+r"datasets/"
 result_path = base_path+r"results/"
 
 #If not None, CSV files containing data used by the TS-CHIEF java program will be outputed
-#dataset_path+r"TSCHIEF/"
-TSCHIEF_path = None
+TSCHIEF_path = dataset_path+r"TSCHIEF/"
 
 #If True, perform cross validation of all defined pipelines
 do_cross_validation = True
@@ -172,8 +171,6 @@ codes = np.unique(codes) #Unique event codes present in the data, in increasing 
 
 # In[6]:
 
-##
-
 def get_R1_dict(codes):
     return {x : i for i,x in enumerate(codes)}
 
@@ -240,6 +237,8 @@ def apply_code_dict(df, code_dic, code_column='cod_evt'):
 # # Define pipelines
 
 # We now define the pipelines that we will use for crossvalidation
+
+#Number of features selected when selection from extra random trees is performed
 max_features=100
 
 pipeline_dict = {}

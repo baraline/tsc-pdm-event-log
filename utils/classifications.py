@@ -154,8 +154,8 @@ class RISE(BaseEstimator, ClassifierMixin, SktimeEstimator):
 
 
 class Random_Forest(BaseEstimator, ClassifierMixin):
-    def __init__(self, n_estimators=300, max_depth=None, max_samples=0.75,
-            ccp_alpha=0.0225, class_weight="balanced_subsample"):
+    def __init__(self, n_estimators=350, max_depth=None, max_samples=0.85,
+            ccp_alpha=0.022, class_weight="balanced_subsample"):
         self.n_estimators=n_estimators
         self.max_depth=max_depth
         self.max_samples=max_samples

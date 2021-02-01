@@ -142,14 +142,11 @@ life_cycles = np.asarray([process_cycle(file_name, dataset_path,
 def last_X_days(data, y, X, min_data=0.33):
     if (data.iloc[-1]['date'] - data.iloc[0]['date']) >= timedelta(days=X+1):
         lim_date = pd.Timestamp(data.iloc[-1]['date'].date())
-        #Remove not complete day
-        data = data[data['date'] < lim_date]
-
-        #Remove
-        date = pd.Timestamp((lim_date - timedelta(days=X)))
-        data = data.drop(data[data['date'] < date].index,axis=0)
+        #Remove last not complete day to perform alignment and keep 21 days from 00:00:00 to 23:59:59
+        dt_range = [lim_date - timedelta(days=X), lim_date - timedelta(seconds=1)]
+        data = data.drop(data[~data['date'].between(dt_range[0],dt_range[1])].index,axis=0)
         if data.shape[0] > ((X*24*60)/int(resample_freq[0:2]))*min_data:
-            return data,y
+            return data, y, dt_range
         else:
             return None
     else:
@@ -588,13 +585,12 @@ for i_r, dic_func in enumerate([get_R1_dict]):
         fill_value = 1000
     elif order[i_r] == 'R4':
         fill_value = code_dict['-1']
-
-    X = [apply_code_dict(x[0].copy(deep=True), code_dict).resample(resample_freq,on='date',convention='end',origin='start_day').mean().fillna(fill_value) for x in life_cycles if x is not None]
+        
+        
+    
+    X = np.array([apply_code_dict(x[0], code_dict).resample(resample_freq, on='date').mean().reindex(pd.date_range(start = x[2][0], end = x[2][1], freq=resample_freq)).fillna(fill_value).values  for x in life_cycles if x is not None],dtype='float')
     y = np.asarray([x[1] for x in life_cycles if x is not None]).astype(int)
 
-
-    X = np.asarray([x.reindex(pd.date_range(start=x.index[-1].date()-timedelta(days=n_days),
-                                            end=x.index[-1].date(), freq=resample_freq)).fillna(fill_value).values for x in X])
     print(X.shape)
     print(np.bincount(y))
 

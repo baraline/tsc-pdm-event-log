@@ -588,7 +588,7 @@ for i_r, dic_func in enumerate([get_R1_dict]):
         
         
     
-    X = np.array([apply_code_dict(x[0], code_dict).resample(resample_freq, on='date').mean().reindex(pd.date_range(start = x[2][0], end = x[2][1], freq=resample_freq)).fillna(fill_value).values  for x in life_cycles if x is not None],dtype='float')
+    X = np.array([apply_code_dict(x[0], code_dict).resample(resample_freq, on='date').mean().reindex(pd.date_range(start = x[2][0], end = x[2][1], freq=resample_freq)).fillna(fill_value).values  for x in life_cycles if x is not None], dtype='float')
     y = np.asarray([x[1] for x in life_cycles if x is not None]).astype(int)
 
     print(X.shape)

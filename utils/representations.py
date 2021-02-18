@@ -170,15 +170,20 @@ class MatrixProfile_transform():
         return self
 
 class ROCKET_transform(BaseEstimator, TransformerMixin):
-    def __init__(self, n_kernels=20000, kernel_sizes=(5,7,9,11), flatten=False, random_state=None):
+    def __init__(self, n_kernels=20000, kernel_sizes=(5,7,9,11), normalise=True, flatten=False, random_state=None):
         self.flatten = flatten
         self.n_kernels = n_kernels
         self.kernel_sizes = kernel_sizes
         self.random_state = random_state
+		self.normalise = normalise
         self.transformer = None
 
     def transform(self, X, y=None):
         X = X.reshape(X.shape[0],X.shape[1])
+		if self.normalise:
+			X = (X - X.mean(axis=-1, keepdims=True)) / (
+                X.std(axis=-1, keepdims=True) + 1e-8
+            )
         X = self.transformer.transform(X)
         if self.flatten:
             X = X.reshape(X.shape[0], X.shape[1])
